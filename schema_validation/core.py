@@ -1,15 +1,27 @@
+import warnings
+
 from .utils import hash_schema
 
 
+def copy_and_drop(D, keys):
+    return {key: val for key, val in D.items() if key not in keys}
+
+
 class Schema(object):
-    def __init__(self, schema):
+    def __init__(self, schema, ignore=('definitions',)):
         if not isinstance(schema, dict):
             raise ValueError("schema must be a dict")
         self.schema = schema
 
         # _defined_schemas is a dictionary of all schemas that have been seen.
         self._defined_schemas = {}
-        self.tree = self._initialize_child(self.schema)
+
+        # drop ignored keys to prevent warnings
+        schema_copy = {key: val for key, val in self.schema.items()
+                       if key not in ignore}
+
+        # Initialize the tree, then recursively crawl to initialize children
+        self.tree = self._initialize_child(schema_copy)
         self._crawl_children()
 
     def _initialize_child(self, schema):
@@ -55,6 +67,11 @@ class _BaseSchema(object):
         self.root = root
         self.parents = set()
 
+        unrecognized = set(schema.keys()) - set(self.recognized_keys)
+        if unrecognized:
+            warnings.warn('Unrecognized keys {0} in class {1}'
+                          ''.format(unrecognized, self.__class__.__name__))
+
     @classmethod
     def _validate(cls, schema):
         return False
@@ -75,6 +92,8 @@ class _BaseSchema(object):
 
 
 class ObjectSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type', 'properties',
+                       'additionalProperties', 'required'}
     @classmethod
     def _validate(cls, schema):
         return (schema.get('type', None) == 'object'
@@ -92,6 +111,8 @@ class ObjectSchema(_BaseSchema):
 
 
 class ArraySchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type', 'items',
+                       'minItems', 'maxItems'}
     @classmethod
     def _validate(cls, schema):
         return 'items' in schema
@@ -105,42 +126,57 @@ class ArraySchema(_BaseSchema):
 
 
 class NumberTypeSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type', 'minimum', 'maximum'}
     @classmethod
     def _validate(cls, schema):
-        return schema.get('type', None) == 'number'
+        return 'enum' not in schema and schema.get('type', None) == 'number'
 
 
 class IntegerTypeSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type', 'mimimum', 'maximum'}
     @classmethod
     def _validate(cls, schema):
-        return schema.get('type', None) == 'integer'
+        return 'enum' not in schema and schema.get('type', None) == 'integer'
 
 
 class StringTypeSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type', 'format',
+                       'minLength', 'maxLength'}
     @classmethod
     def _validate(cls, schema):
-        return schema.get('type', None) == 'string'
+        return 'enum' not in schema and schema.get('type', None) == 'string'
 
 
 class NullTypeSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type'}
     @classmethod
     def _validate(cls, schema):
-        return schema.get('type', None) == 'null'
+        return 'enum' not in schema and schema.get('type', None) == 'null'
 
 
 class BooleanTypeSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type'}
     @classmethod
     def _validate(cls, schema):
-        return schema.get('type', None) == 'boolean'
+        return 'enum' not in schema and schema.get('type', None) == 'boolean'
+
+
+class EnumSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type', 'enum'}
+    @classmethod
+    def _validate(cls, schema):
+        return 'enum' in schema
 
 
 class MultiTypeSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type'}
     @classmethod
     def _validate(cls, schema):
         return isinstance(schema.get('type', None), list)
 
 
 class AnyOfSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'anyOf'}
     @classmethod
     def _validate(cls, schema):
         return 'anyOf' in schema
@@ -152,6 +188,7 @@ class AnyOfSchema(_BaseSchema):
 
 
 class RefSchema(_BaseSchema):
+    recognized_keys = {'description', '$schema', 'type', '$ref'}
     def __init__(self, schema, root):
         super(RefSchema, self).__init__(schema, root)
         self.name = self.schema['$ref']
@@ -180,6 +217,7 @@ class RefSchema(_BaseSchema):
 
 
 class EmptySchema(_BaseSchema):
+    recognized_keys = {'description', '$schema'}
     @classmethod
     def _validate(cls, schema):
-        return len(schema) == 0 or schema.keys() == {'description'}
+        return len(set(schema.keys()) - cls.recognized_keys) == 0
