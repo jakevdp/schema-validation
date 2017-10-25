@@ -115,7 +115,7 @@ class ArraySchema(_BaseSchema):
                        'minItems', 'maxItems'}
     @classmethod
     def _validate(cls, schema):
-        return 'items' in schema
+        return schema.get('type', None) == 'array' or 'items' in schema
 
     @property
     def children(self):
