@@ -19,17 +19,29 @@ def generate_schemas():
         'b': [{}, {'name': 'bob', 'age': 31}],
         'c': (1, 2, 3)
     }
+    yield {
+        '$ref': '#/definitions/TopLevel',
+        'definitions': {
+            'TopLevel': {
+                'anyOf': [
+                    {'$ref': '#/definitions/Chart'},
+                    {'$ref': '#/definitions/LayeredChart'},
+                    {'$ref': '#/definitions/FacetedChart'}
+                ]
+            },
+            'Chart': {'type': 'object', 'properties': {'a': {'type': 'string'}}},
+            'LayeredChart': {'type': 'object', 'properties': {'a': {'type': 'integer'}}},
+            'FacetedChart': {'type': 'object', 'properties': {'a': {'type': 'number'}}},
+        }
+    }
 
 
 def scramble(val):
+    # scramble the order in which the dict is defined
     if isinstance(val, dict):
         L = [(k, scramble(v)) for k, v in val.items()]
         random.shuffle(L)
         return dict(L)
-    elif isinstance(val, set):
-        L = [scramble(v) for v in val]
-        random.shuffle(L)
-        return set(L)
     elif isinstance(val, tuple):
         return tuple(map(scramble, val))
     elif isinstance(val, list):

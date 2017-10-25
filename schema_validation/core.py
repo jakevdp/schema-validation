@@ -42,6 +42,7 @@ class Schema(object):
         def crawl(obj):
             for child in obj.children:
                 hsh = hash_schema(child.schema)
+                child.parents.add(obj)
                 if hsh not in seen:
                     seen.add(hsh)
                     crawl(child)
@@ -52,6 +53,7 @@ class _BaseSchema(object):
     def __init__(self, schema, root):
         self.schema = schema
         self.root = root
+        self.parents = set()
 
     @classmethod
     def _validate(cls, schema):
@@ -64,22 +66,42 @@ class _BaseSchema(object):
     def children(self):
         return []
 
+    def __repr__(self):
+        if len(self.schema) > 3:
+            args = ', '.join(sorted(self.schema.keys())[:3]) + '...'
+        else:
+            args = ', '.join(sorted(self.schema.keys()))
+        return "{0}({1})".format(self.__class__.__name__, args)
+
 
 class ObjectSchema(_BaseSchema):
     @classmethod
     def _validate(cls, schema):
-        return 'properties' in schema
+        return (schema.get('type', None) == 'object'
+                or 'properties' in schema
+                or 'additionalProperties' in schema)
 
     @property
     def children(self):
+        props = list(self.schema.get('properties', {}).values())
+        addprops = self.schema.get('additionalProperties', None)
+        if isinstance(addprops, dict):
+            props.append(addprops)
         return [self.root._initialize_child(propschema)
-                for prop, propschema in self.schema['properties'].items()]
+                for propschema in props]
 
 
 class ArraySchema(_BaseSchema):
     @classmethod
     def _validate(cls, schema):
         return 'items' in schema
+
+    @property
+    def children(self):
+        if 'items' in self.schema:
+            return [self.root._initialize_child(self.schema['items'])]
+        else:
+            return []
 
 
 class NumberTypeSchema(_BaseSchema):
@@ -152,3 +174,12 @@ class RefSchema(_BaseSchema):
         for key in keys[1:]:
             refschema = refschema[key]
         return refschema
+
+    def __repr__(self):
+        return "RefSchema('{0}')".format(self.name)
+
+
+class EmptySchema(_BaseSchema):
+    @classmethod
+    def _validate(cls, schema):
+        return len(schema) == 0 or schema.keys() == {'description'}
