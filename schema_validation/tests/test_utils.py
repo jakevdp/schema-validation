@@ -10,12 +10,11 @@ def generate_schemas():
     yield None
     yield {'a': 1, 'b': 2}
     yield [1, 2, 3]
-    yield {1, 2, 3}
     yield (1, 2, 3)
     yield {
         'a': {
             'key': [1, 2, 3],
-            'val': {'a', 'b', 'c'}
+            'val': ['a', 'b', 'c']
             },
         'b': [{}, {'name': 'bob', 'age': 31}],
         'c': (1, 2, 3)

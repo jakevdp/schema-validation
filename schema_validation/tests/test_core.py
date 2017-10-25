@@ -21,5 +21,6 @@ def simple_schema():
     }
 
 
-def test_simple_schema_smoketest(simple_schema):
-    Schema(simple_schema)
+def test_simple_schema(simple_schema):
+    root = Schema(simple_schema)
+    assert len(root._defined_schemas) == 11

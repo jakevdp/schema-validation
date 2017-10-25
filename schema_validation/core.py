@@ -3,11 +3,22 @@ from .utils import hash_schema
 
 class Schema(object):
     def __init__(self, schema):
+        if not isinstance(schema, dict):
+            raise ValueError("schema must be a dict")
         self.schema = schema
-        self._defined_schemas = {}
-        self.tree = self.initialize_child(self.schema)
 
-    def initialize_child(self, schema):
+        # _defined_schemas is a dictionary of all schemas that have been seen.
+        self._defined_schemas = {}
+        self.tree = self._initialize_child(self.schema)
+        self._crawl_children()
+
+    def _initialize_child(self, schema):
+        """Initialize a child schema.
+
+        This also updates the _defined_schemas registry, and if the schema
+        already appears in this registry then it instead returns a reference
+        to the already created object.
+        """
         key = hash_schema(schema)
 
         if key in self._defined_schemas:
@@ -26,6 +37,16 @@ class Schema(object):
             self._defined_schemas[key] = obj
         return obj
 
+    def _crawl_children(self):
+        seen = set()
+        def crawl(obj):
+            for child in obj.children:
+                hsh = hash_schema(child.schema)
+                if hsh not in seen:
+                    seen.add(hsh)
+                    crawl(child)
+        crawl(self.tree)
+
 
 class _BaseSchema(object):
     def __init__(self, schema, root):
@@ -39,6 +60,7 @@ class _BaseSchema(object):
     def schema_hash(self):
         return hash_schema(self.schema)
 
+    @property
     def children(self):
         return []
 
@@ -48,8 +70,9 @@ class ObjectSchema(_BaseSchema):
     def _validate(cls, schema):
         return 'properties' in schema
 
+    @property
     def children(self):
-        return [self.root.initialize_child(propschema)
+        return [self.root._initialize_child(propschema)
                 for prop, propschema in self.schema['properties'].items()]
 
 
@@ -100,32 +123,32 @@ class AnyOfSchema(_BaseSchema):
     def _validate(cls, schema):
         return 'anyOf' in schema
 
+    @property
     def children(self):
-        return [self.root.initialize_child(schema)
+        return [self.root._initialize_child(schema)
                 for schema in self.schema['anyOf']]
 
 
 class RefSchema(_BaseSchema):
     def __init__(self, schema, root):
         super(RefSchema, self).__init__(schema, root)
-        self.name = self._refname()
-        self.ref = self._refobj()
+        self.name = self.schema['$ref']
+        self.ref = self.root._initialize_child(self.refschema)
 
     @classmethod
     def _validate(cls, schema):
         return '$ref' in schema
 
+    @property
     def children(self):
-        return self.ref.children()
+        return self.ref.children
 
-    def _refname(self):
-        return self.schema['$ref'].split('/')[-1]
-
-    def _refobj(self):
+    @property
+    def refschema(self):
         keys = self.schema['$ref'].split('/')
         if keys[0] != '#':
             raise ValueError("$ref = {0} not recognized".format(self.schema['$ref']))
         refschema = self.root.schema
         for key in keys[1:]:
             refschema = refschema[key]
-        return self.root.initialize_child(refschema)
+        return refschema
