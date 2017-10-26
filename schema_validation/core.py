@@ -25,6 +25,7 @@ class Schema(object):
         self.schema = schema
         self.root = root or self
         self.validators = self._initialize_validators()
+        self.parents = []
 
         # We need setup to finish entirely before recursively creating children
         # and so we call it only for the root object.
@@ -66,11 +67,14 @@ class Schema(object):
                     crawl(child)
         crawl(self)
 
-    def initialize_child(self, schema):
+    def initialize_child(self, schema, parent=None):
         key = hash_schema(schema)
         if key not in self.registry:
             self.registry[key] = Schema(schema, root=self.root)
-        return self.registry[key]
+        obj = self.registry[key]
+        if self not in obj.parents:
+            obj.parents.append(self)
+        return obj
 
     @property
     def children(self):
@@ -78,7 +82,7 @@ class Schema(object):
         return [self.initialize_child(schema) for schema in schemas]
 
     def __repr__(self):
-        return "Schema({0})".format(nested_dict_repr(self.schema))
+        return "Schema({0})".format(self.validators)
 
 
 class Validator(object):

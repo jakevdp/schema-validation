@@ -3,9 +3,11 @@ import hashlib
 
 
 def nested_dict_repr(obj, depth=1):
+    """Return an object with a cleaner representation of a nested dict"""
     class EllipsisDict(object):
         def __repr__(self):
             return "{...}"
+
     if isinstance(obj, dict):
         if depth <= 0:
             return EllipsisDict()
