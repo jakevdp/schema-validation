@@ -99,6 +99,8 @@ def schemas_for_validation():
            [True, False], ['hello', None, 1, 2.5])
     yield ({"type": "null"},
            [None], ['hello', True, 1, 2.5])
+    yield ({"type": ["boolean", "integer", "string"]},
+           [True, 4.0, 'hello'], [None, 4.5, {}])
     yield ({"type": "array", 'items': {}},
            [[1,'hello'], [None, True]], [1, 'hello'])
     yield ({"type": "array", 'items': {'type': 'number'}},
@@ -113,7 +115,21 @@ def schemas_for_validation():
            [0.01, 0.5, 0.99], [0, 1])
     yield ({"type": "string", 'minLength': 2, 'maxLength': 5},
            ["12", "123", "12345"], ["", "1", "123456"])
-    # TODO: object, ref, anyOf, oneOf, allOf, not, compound
+    yield ({'properties': {'a': {'type': 'integer'}}},
+           [{'a':4}, {'a':0, 'b':5}], [1, {'a':'foo'}, None])
+    yield ({'type': 'object'},
+           [{}, {'a':4}, {'a':0, 'b':5}], [1, 'blah', None])
+    yield ({'type': 'object', 'additionalProperties': False},
+           [{}], [{'a':4}, {'a':0, 'b':5}])
+    yield ({'type': 'object', 'additionalProperties': {'type': 'string'}},
+           [{'a': 'foo'}, {'a': 'blah', 'b': 'hello'}],
+           [{'a':4}, {'a':0, 'b':5}])
+    yield ({'$ref': '#/definitions/Foo',
+            'definitions': {'Foo': {'type': 'string'}}},
+           ['a', 'b', 'c'], [1, None, False])
+    yield({'anyOf': [{'type': 'integer'}, {'type': 'object'}]},
+          [1, {}, {'foo': 'bar'}], ['hello', None])
+    # TODO: ref, anyOf, oneOf, allOf, not, compound
 
 
 @pytest.mark.parametrize('schema,valid,invalid', schemas_for_validation())

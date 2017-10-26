@@ -89,13 +89,13 @@ class Schema(object):
         def crawl(obj):
             for child in obj.children:
                 hsh = hash_schema(child.schema)
-                #child.parents.add(obj)
                 if hsh not in seen:
                     seen.add(hsh)
                     crawl(child)
         crawl(self)
 
     def initialize_child(self, schema):
+        """Return a Schema object wrapping a child schema"""
         key = hash_schema(schema)
         if key not in self.registry:
             self.registry[key] = Schema(schema, root=self.root)
@@ -156,6 +156,7 @@ class Validator(object):
         return validators
 
     def init_child(self, schema):
+        """Initialize a child Schema object from a schema dict"""
         return self.parent.initialize_child(schema)
 
     @classmethod
@@ -199,10 +200,10 @@ class ObjectValidator(Validator):
     def validate(self, obj):
         if not isinstance(obj, dict):
             raise SchemaValidationError("{0} is not of type='object'".format(obj))
-        if not all(key in obj for key in self.get('required', [])):
+        if not all(key in obj for key in self.schema.get('required', [])):
             raise SchemaValidationError("{0} does not contain required keys {1}"
                                         "".format(obj, self.schema['required']))
-        for key, val in obj.items:
+        for key, val in obj.items():
             properties = self.schema.get('properties', {})
             patternProperties = self.schema.get('patternProperties', {})
             additionalProperties = self.schema.get('additionalProperties', True)
@@ -358,7 +359,16 @@ class MultiTypeValidator(Validator):
         return isinstance(schema.get('type', None), list)
 
     def validate(self, obj):
-        raise NotImplementedError()
+        schema_copy = self.schema.copy()
+        for typ in self.schema['type']:
+            schema_copy['type'] = typ
+            try:
+                self.init_child(schema_copy).validate(obj)
+            except:
+                pass
+            else:
+                return
+        raise SchemaValidationError()
 
 
 class RefValidator(Validator):
@@ -386,7 +396,7 @@ class RefValidator(Validator):
         return "RefValidator('{0}')".format(self.name)
 
     def validate(self, obj):
-        self.make_child(self.children[0]).validate(obj)
+        self.init_child(self.children[0]).validate(obj)
 
 
 class AnyOfValidator(Validator):
@@ -401,12 +411,14 @@ class AnyOfValidator(Validator):
 
     def validate(self, obj):
         for child in self.children:
+            print(child, obj)
             try:
-                self.make_child(child).validate(obj)
-            except:
+                self.init_child(child).validate(obj)
+            except SchemaValidationError:
                 pass
             else:
                 return
+        raise SchemaValidationError()
 
 
 class OneOfValidator(Validator):
@@ -423,7 +435,7 @@ class OneOfValidator(Validator):
         count = 0
         for child in self.children:
             try:
-                self.make_child(child).validate(obj)
+                self.init_child(child).validate(obj)
             except:
                 pass
             else:
@@ -444,7 +456,7 @@ class AllOfValidator(Validator):
 
     def validate(self, obj):
         for child in self.children:
-            self.make_child(child).validate(obj)
+            self.init_child(child).validate(obj)
 
 
 class NotValidator(Validator):
@@ -459,7 +471,7 @@ class NotValidator(Validator):
 
     def validate(self, obj):
         try:
-            self.make_child(self.children[0]).validate(obj)
+            self.init_child(self.children[0]).validate(obj)
         except SchemaValidationError:
             pass
         else:
