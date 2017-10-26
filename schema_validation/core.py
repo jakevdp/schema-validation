@@ -1,71 +1,90 @@
+"""
+Design thoughts:
+
+Attributes
+
+- validators are a list of zero or more Validators, built from parts of the schema
+- parents are a physically storedlist of zero or more parent Schemas
+- children are a dynamically calculated list of zero or more child schemas (with validators
+  knowing how to find children)
+- each has a root attribute pointing to the root Schema
+- root Schema has a registry of instantiated Schemas, mapped from their schema hash,
+  such that if a schema appears multiple times, its multiple parents will be tracked.
+- result is a graph that may or may not be fully or partially cyclic.
+"""
+
 import warnings
+import itertools
 
-from .utils import hash_schema
-
-
-def copy_and_drop(D, keys):
-    return {key: val for key, val in D.items() if key not in keys}
+from .utils import hash_schema, nested_dict_repr
 
 
 class Schema(object):
-    def __init__(self, schema, ignore=('definitions',)):
-        if not isinstance(schema, dict):
-            raise ValueError("schema must be a dict")
+    def __init__(self, schema, root=None):
+        self._registry = {}
         self.schema = schema
+        self.root = root or self
+        self.validators = self._initialize_validators()
 
-        # _defined_schemas is a dictionary of all schemas that have been seen.
-        self._defined_schemas = {}
+        # We need setup to finish entirely before recursively creating children
+        # and so we call it only for the root object.
+        if self is self.root:
+            self._registry[hash_schema(self.schema)] = self
+            self._recursively_create_children()
 
-        # drop ignored keys to prevent warnings
-        schema_copy = {key: val for key, val in self.schema.items()
-                       if key not in ignore}
+    @property
+    def registry(self):
+        """Registry of instantiated Schema objects"""
+        return self.root._registry
 
-        # Initialize the tree, then recursively crawl to initialize children
-        self.tree = self._initialize_child(schema_copy)
-        self._crawl_children()
+    def _initialize_validators(self):
+        # key = hash_schema(schema)
+        validator_classes = [cls for cls in Validator.__subclasses__()
+                             if cls._matches(self.schema)]
+        validators = []
 
-    def _initialize_child(self, schema):
-        """Initialize a child schema.
+        used_keys = {'definitions', 'description', 'title', '$schema'}
+        for cls in validator_classes:
+            cls_schema = {key:val for key, val in self.schema.items()
+                          if key in cls.recognized_keys}
+            used_keys |= cls_schema.keys()
+            validators.append(cls(cls_schema, parent=self))
+        unused = self.schema.keys() - used_keys
+        if unused:
+            warnings.warn("Unused keys {0} in {1}"
+                          "".format(unused, validators))
+        return validators
 
-        This also updates the _defined_schemas registry, and if the schema
-        already appears in this registry then it instead returns a reference
-        to the already created object.
-        """
-        key = hash_schema(schema)
-
-        if key in self._defined_schemas:
-            obj = self._defined_schemas[key]
-        else:
-            valid_classes = [cls for cls in _BaseSchema.__subclasses__()
-                             if cls._validate(schema)]
-            if len(valid_classes) == 0:
-                raise ValueError("No valid class for schema {0}"
-                                 "".format(schema))
-            elif len(valid_classes) > 1:
-                raise ValueError("Schema matches multiple classes: {0}\n{1}"
-                                 "".format(valid_classes, schema))
-
-            obj = valid_classes[0](schema, root=self)
-            self._defined_schemas[key] = obj
-        return obj
-
-    def _crawl_children(self):
+    def _recursively_create_children(self):
         seen = set()
         def crawl(obj):
             for child in obj.children:
                 hsh = hash_schema(child.schema)
-                child.parents.add(obj)
+                #child.parents.add(obj)
                 if hsh not in seen:
                     seen.add(hsh)
                     crawl(child)
-        crawl(self.tree)
+        crawl(self)
+
+    def initialize_child(self, schema):
+        key = hash_schema(schema)
+        if key not in self.registry:
+            self.registry[key] = Schema(schema, root=self.root)
+        return self.registry[key]
+
+    @property
+    def children(self):
+        schemas = itertools.chain(*(v.children for v in self.validators))
+        return [self.initialize_child(schema) for schema in schemas]
+
+    def __repr__(self):
+        return "Schema({0})".format(nested_dict_repr(self.schema))
 
 
-class _BaseSchema(object):
-    def __init__(self, schema, root):
+class Validator(object):
+    def __init__(self, schema, parent):
         self.schema = schema
-        self.root = root
-        self.parents = set()
+        self.parent = parent
 
         unrecognized = set(schema.keys()) - set(self.recognized_keys)
         if unrecognized:
@@ -73,11 +92,8 @@ class _BaseSchema(object):
                           ''.format(unrecognized, self.__class__.__name__))
 
     @classmethod
-    def _validate(cls, schema):
+    def _matches(cls, schema):
         return False
-
-    def schema_hash(self):
-        return hash_schema(self.schema)
 
     @property
     def children(self):
@@ -91,133 +107,154 @@ class _BaseSchema(object):
         return "{0}({1})".format(self.__class__.__name__, args)
 
 
-class ObjectSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type', 'properties',
-                       'additionalProperties', 'required'}
+class ObjectValidator(Validator):
+    recognized_keys = {'type', 'properties', 'additionalProperties',
+                       'patternProperties', 'required'}
+    # TODO: handle pattern properties
     @classmethod
-    def _validate(cls, schema):
+    def _matches(cls, schema):
         return (schema.get('type', None) == 'object'
-                or 'properties' in schema
-                or 'additionalProperties' in schema)
+                 or 'properties' in schema
+                 or 'additionalProperties' in schema)
 
     @property
     def children(self):
         props = list(self.schema.get('properties', {}).values())
+        props += list(self.schema.get('patternProperties', {}).values())
         addprops = self.schema.get('additionalProperties', None)
         if isinstance(addprops, dict):
             props.append(addprops)
-        return [self.root._initialize_child(propschema)
-                for propschema in props]
+        return props
 
 
-class ArraySchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type', 'items',
-                       'minItems', 'maxItems'}
+class ArrayValidator(Validator):
+    recognized_keys = {'type', 'items', 'minItems', 'maxItems', 'numItems'}
     @classmethod
-    def _validate(cls, schema):
+    def _matches(cls, schema):
         return schema.get('type', None) == 'array' or 'items' in schema
 
     @property
     def children(self):
         if 'items' in self.schema:
-            return [self.root._initialize_child(self.schema['items'])]
+            return [self.schema['items']]
         else:
             return []
 
 
-class NumberTypeSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type', 'minimum', 'maximum'}
+class NumberTypeValidator(Validator):
+    recognized_keys = {'type', 'minimum', 'maximum', 'default'}
     @classmethod
-    def _validate(cls, schema):
-        return 'enum' not in schema and schema.get('type', None) == 'number'
+    def _matches(cls, schema):
+        return schema.get('type', None) == 'number'
 
 
-class IntegerTypeSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type', 'mimimum', 'maximum'}
+class IntegerTypeValidator(Validator):
+    recognized_keys = {'type', 'mimimum', 'maximum', 'default'}
     @classmethod
-    def _validate(cls, schema):
-        return 'enum' not in schema and schema.get('type', None) == 'integer'
+    def _matches(cls, schema):
+        return schema.get('type', None) == 'integer'
 
 
-class StringTypeSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type', 'format',
-                       'minLength', 'maxLength'}
+class StringTypeValidator(Validator):
+    recognized_keys = {'type', 'pattern', 'format',
+                       'minLength', 'maxLength', 'default'}
     @classmethod
-    def _validate(cls, schema):
-        return 'enum' not in schema and schema.get('type', None) == 'string'
+    def _matches(cls, schema):
+        return schema.get('type', None) == 'string'
 
 
-class NullTypeSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type'}
+class NullTypeValidator(Validator):
+    recognized_keys = {'type'}
     @classmethod
-    def _validate(cls, schema):
-        return 'enum' not in schema and schema.get('type', None) == 'null'
+    def _matches(cls, schema):
+        return schema.get('type', None) == 'null'
 
 
-class BooleanTypeSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type'}
+class BooleanTypeValidator(Validator):
+    recognized_keys = {'type', 'default'}
     @classmethod
-    def _validate(cls, schema):
-        return 'enum' not in schema and schema.get('type', None) == 'boolean'
+    def _matches(cls, schema):
+        return schema.get('type', None) == 'boolean'
 
 
-class EnumSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type', 'enum'}
+class EnumValidator(Validator):
+    recognized_keys = {'enum', 'default'}
     @classmethod
-    def _validate(cls, schema):
+    def _matches(cls, schema):
         return 'enum' in schema
 
 
-class MultiTypeSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type'}
+class MultiTypeValidator(Validator):
+    recognized_keys = {'type', 'minimum', 'maximum'}
     @classmethod
-    def _validate(cls, schema):
+    def _matches(cls, schema):
         return isinstance(schema.get('type', None), list)
 
 
-class AnyOfSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'anyOf'}
-    @classmethod
-    def _validate(cls, schema):
-        return 'anyOf' in schema
-
-    @property
-    def children(self):
-        return [self.root._initialize_child(schema)
-                for schema in self.schema['anyOf']]
-
-
-class RefSchema(_BaseSchema):
-    recognized_keys = {'description', '$schema', 'type', '$ref'}
-    def __init__(self, schema, root):
-        super(RefSchema, self).__init__(schema, root)
-        self.name = self.schema['$ref']
-        self.ref = self.root._initialize_child(self.refschema)
+class RefValidator(Validator):
+    recognized_keys = {'$ref'}
 
     @classmethod
-    def _validate(cls, schema):
+    def _matches(cls, schema):
         return '$ref' in schema
 
     @property
     def children(self):
-        return self.ref.children
-
-    @property
-    def refschema(self):
         keys = self.schema['$ref'].split('/')
         if keys[0] != '#':
             raise ValueError("$ref = {0} not recognized".format(self.schema['$ref']))
-        refschema = self.root.schema
+        refschema = self.parent.root.schema
         for key in keys[1:]:
             refschema = refschema[key]
-        return refschema
+        return [refschema]
+
+    @property
+    def name(self):
+        return self.schema['$ref']
 
     def __repr__(self):
-        return "RefSchema('{0}')".format(self.name)
+        return "RefValidator('{0}')".format(self.name)
 
 
-class EmptySchema(_BaseSchema):
-    recognized_keys = {'description', '$schema'}
+class AnyOfValidator(Validator):
+    recognized_keys = {'anyOf'}
     @classmethod
-    def _validate(cls, schema):
-        return len(set(schema.keys()) - cls.recognized_keys) == 0
+    def _matches(cls, schema):
+        return 'anyOf' in schema
+
+    @property
+    def children(self):
+        return self.schema['anyOf']
+
+
+class OneOfValidator(Validator):
+    recognized_keys = {'oneOf'}
+    @classmethod
+    def _matches(cls, schema):
+        return 'oneOf' in schema
+
+    @property
+    def children(self):
+        return self.schema['oneOf']
+
+
+class AllOfValidator(Validator):
+    recognized_keys = {'allOf'}
+    @classmethod
+    def _matches(cls, schema):
+        return 'allOf' in schema
+
+    @property
+    def children(self):
+        return self.schema['allOf']
+
+
+class NotValidator(Validator):
+    recognized_keys = {'not'}
+    @classmethod
+    def _matches(cls, schema):
+        return 'not' in schema
+
+    @property
+    def children(self):
+        return [self.schema['not']]

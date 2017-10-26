@@ -21,42 +21,51 @@ def definition_schema():
     }
 
 
-def generate_simple_schemas():
-    yield ({'type': 'integer'}, core.IntegerTypeSchema)
-    yield ({'type': 'number'}, core.NumberTypeSchema)
-    yield ({'type': 'string'}, core.StringTypeSchema)
-    yield ({'type': 'null'}, core.NullTypeSchema)
-    yield ({'type': 'array'}, core.ArraySchema)
-    yield ({'type': 'object'}, core.ObjectSchema)
-    yield ({'type': ['integer', 'number', 'string']}, core.MultiTypeSchema)
-    yield ({'properties': {'foo': {'type': 'string'}}}, core.ObjectSchema)
-    yield ({'additionalProperties': {'type': 'string'}}, core.ObjectSchema)
-    yield ({'enum': ['hello'], 'type': 'string'}, core.EnumSchema)
-    yield ({'enum': [0, 1], 'type': 'integer'}, core.EnumSchema)
-    yield ({'enum': [0, 1], 'type': 'number'}, core.EnumSchema)
-    yield ({'enum': [True], 'type': 'boolean'}, core.EnumSchema)
-    yield ({'enum': [None], 'type': 'null'}, core.EnumSchema)
-    yield ({'enum': ['hello', None, 2]}, core.EnumSchema)
-    yield ({'description': 'foo'}, core.EmptySchema)
-    yield ({}, core.EmptySchema)
-    yield ({'$ref': '#/definitions/blah',
-            'definitions': {'blah': {'type': 'string'}}},
-           core.RefSchema)
-    yield({'anyOf': [{'type': 'integer'}, {'type': 'string'}]},
-          core.AnyOfSchema)
-
-
 def test_definition_schema(definition_schema):
     root = Schema(definition_schema)
-    assert len(root._defined_schemas) == 11
+    assert len(root._registry) == 11
 
 
-@pytest.mark.parametrize('schema, cls', generate_simple_schemas())
-def test_simple_schemas(schema, cls):
+def generate_simple_schemas():
+    yield ({'type': 'integer'}, [core.IntegerTypeValidator])
+    yield ({'type': 'number'}, [core.NumberTypeValidator])
+    yield ({'type': 'string'}, [core.StringTypeValidator])
+    yield ({'type': 'null'}, [core.NullTypeValidator])
+    yield ({'type': 'array'}, [core.ArrayValidator])
+    yield ({'type': 'object'}, [core.ObjectValidator])
+    yield ({'type': ['integer', 'number', 'string']}, [core.MultiTypeValidator])
+    yield ({'properties': {'foo': {'type': 'string'}}}, [core.ObjectValidator])
+    yield ({'additionalProperties': {'type': 'string'}}, [core.ObjectValidator])
+    yield ({'enum': ['hello'], 'type': 'string'}, [core.EnumValidator,
+                                                   core.StringTypeValidator])
+    yield ({'enum': [0, 1], 'type': 'integer'}, [core.EnumValidator,
+                                                 core.IntegerTypeValidator])
+    yield ({'enum': [0, 1], 'type': 'number'}, [core.EnumValidator,
+                                                core.NumberTypeValidator])
+    yield ({'enum': [True], 'type': 'boolean'}, [core.EnumValidator,
+                                                 core.BooleanTypeValidator])
+    yield ({'enum': [None], 'type': 'null'}, [core.EnumValidator,
+                                              core.NullTypeValidator])
+    yield ({'enum': ['hello', None, 2]}, [core.EnumValidator])
+    yield ({'description': 'foo'}, [])
+    yield ({}, [])
+    yield ({'$ref': '#/definitions/blah',
+            'definitions': {'blah': {'type': 'string'}}},
+           [core.RefValidator])
+    yield({'anyOf': [{'type': 'integer'}, {'type': 'string'}]},
+          [core.AnyOfValidator])
+
+
+@pytest.mark.parametrize('schema, vclasses', generate_simple_schemas())
+def test_simple_schemas(schema, vclasses):
     root = Schema(schema)
-    assert isinstance(root.tree, cls)
+    assert len(root.validators) == len(vclasses)
+    for v in root.validators:
+        assert isinstance(v, tuple(vclasses))
 
     schema['$schema'] = 'http://foo.com/schema.json/#'
     schema['description'] = 'this is a description'
     root = Schema(schema)
-    assert isinstance(root.tree, cls)
+    assert len(root.validators) == len(vclasses)
+    for v in root.validators:
+        assert isinstance(v, tuple(vclasses))
