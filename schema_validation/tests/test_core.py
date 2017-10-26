@@ -1,5 +1,5 @@
 import pytest
-from .. import Schema, core
+from .. import Schema, SchemaValidationError, core
 
 
 @pytest.fixture
@@ -86,3 +86,41 @@ def test_circular_schema(circular_schema):
     root = Schema(circular_schema)
     assert isinstance(root.validators[0], core.RefValidator)
     assert isinstance(root.children[0].validators[0], core.AnyOfValidator)
+
+
+def schemas_for_validation():
+    yield ({"type": "number"},
+           [1, 2.5], [True, None, 'hello'])
+    yield ({"type": "integer"},
+           [1, 2.0], [True, None, 'hello', 2.5])
+    yield ({"type": "string"},
+           ["", 'hello'], [True, None, 1, 2.5])
+    yield ({"type": "boolean"},
+           [True, False], ['hello', None, 1, 2.5])
+    yield ({"type": "null"},
+           [None], ['hello', True, 1, 2.5])
+    yield ({"type": "array", 'items': {}},
+           [[1,'hello'], [None, True]], [1, 'hello'])
+    yield ({"enum": [5, "hello", None, False]},
+           [5, "hello", None, False], [2, 'blah', True])
+    yield ({"type": "string", "enum": ['a', 'b', 'c']},
+           ['a', 'b', 'c'], [2, 'blah', True])
+    yield ({"type": "number", "minimum": 0, "maximum": 1},
+           [0, 0.5, 1], [-1, 2])
+    yield ({"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+           [0.01, 0.5, 0.99], [0, 1])
+    yield ({"type": "string", 'minLength': 2, 'maxLength': 5},
+           ["12", "123", "12345"], ["", "1", "123456"])
+    # TODO: object, ref, anyOf, oneOf, allOf
+
+
+@pytest.mark.parametrize('schema,valid,invalid', schemas_for_validation())
+def test_simple_validation(schema, valid, invalid):
+    schemaobj = Schema(schema)
+
+    for value in valid:
+        schemaobj.validate(value)
+
+    for value in invalid:
+        with pytest.raises(SchemaValidationError):
+            schemaobj.validate(value)

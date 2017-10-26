@@ -22,3 +22,7 @@ def hash_schema(schema, hashfunc=hashlib.sha256):
     """Compute a unique hash for a JSON schema"""
     s = json.dumps(schema, sort_keys=True)
     return hashfunc(s.encode()).hexdigest()
+
+
+def isnumeric(val):
+    return isinstance(val, (int, float)) and not isinstance(val, bool)

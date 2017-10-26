@@ -1,2 +1,2 @@
 """Schema Validation"""
-from .core import Schema
+from .core import Schema, SchemaValidationError
