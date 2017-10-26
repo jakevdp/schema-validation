@@ -16,20 +16,7 @@ def nested_dict_repr(obj, depth=1):
         return obj
 
 
-def copy_and_drop(D, keys):
-    return {key: val for key, val in D.items()
-            if key in keys}
-
-
-def split_dict(D, keys):
-    D_in = {key: val for key, val in D.items()
-            if key in keys}
-    D_out = {key: val for key, val in D.items()
-             if key not in keys}
-    return D_in, D_out
-
-
-def hash_schema(schema, hashfunc=hash):
+def hash_schema(schema, hashfunc=hashlib.sha256):
     """Compute a unique hash for a JSON schema"""
     s = json.dumps(schema, sort_keys=True)
-    return hashlib.sha256(s.encode()).hexdigest()
+    return hashfunc(s.encode()).hexdigest()
