@@ -239,6 +239,10 @@ class ArrayValidator(Validator):
             raise SchemaValidationError()
         if 'numItems' in self.schema and len(obj) != self.schema['numItems']:
             raise SchemaValidationError()
+        if 'items' in self.schema:
+            itemtype = self.init_child(self.schema['items'])
+            for val in obj:
+                itemtype.validate(val)
 
 
 class NumberTypeValidator(Validator):

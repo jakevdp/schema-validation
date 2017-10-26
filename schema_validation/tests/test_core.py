@@ -101,6 +101,8 @@ def schemas_for_validation():
            [None], ['hello', True, 1, 2.5])
     yield ({"type": "array", 'items': {}},
            [[1,'hello'], [None, True]], [1, 'hello'])
+    yield ({"type": "array", 'items': {'type': 'number'}},
+           [[1,2], [0.1, 2.5]], [[2.0, 'hello'], [1, None]])
     yield ({"enum": [5, "hello", None, False]},
            [5, "hello", None, False], [2, 'blah', True])
     yield ({"type": "string", "enum": ['a', 'b', 'c']},
@@ -111,7 +113,7 @@ def schemas_for_validation():
            [0.01, 0.5, 0.99], [0, 1])
     yield ({"type": "string", 'minLength': 2, 'maxLength': 5},
            ["12", "123", "12345"], ["", "1", "123456"])
-    # TODO: object, ref, anyOf, oneOf, allOf
+    # TODO: object, ref, anyOf, oneOf, allOf, not, compound
 
 
 @pytest.mark.parametrize('schema,valid,invalid', schemas_for_validation())
