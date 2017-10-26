@@ -69,3 +69,20 @@ def test_simple_schemas(schema, vclasses):
     assert len(root.validators) == len(vclasses)
     for v in root.validators:
         assert isinstance(v, tuple(vclasses))
+
+
+@pytest.fixture
+def circular_schema():
+    return{
+        '$ref': '#/definitions/Obj',
+        'definitions': {
+            'Obj': {'anyOf': [{'type': 'integer'},
+                              {'type': 'array', 'items': {'$ref': '#/definitions/Obj'}}]}
+        }
+    }
+
+
+def test_circular_schema(circular_schema):
+    root = Schema(circular_schema)
+    assert isinstance(root.validators[0], core.RefValidator)
+    assert isinstance(root.children[0].validators[0], core.AnyOfValidator)
