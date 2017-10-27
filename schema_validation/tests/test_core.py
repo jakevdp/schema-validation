@@ -89,6 +89,7 @@ def test_circular_schema(circular_schema):
 
 
 def schemas_for_validation():
+    # yield tuples of (schema, valid_values, invalid_values)
     yield ({"type": "number"},
            [1, 2.5], [True, None, 'hello'])
     yield ({"type": "integer"},
@@ -129,7 +130,13 @@ def schemas_for_validation():
            ['a', 'b', 'c'], [1, None, False])
     yield({'anyOf': [{'type': 'integer'}, {'type': 'object'}]},
           [1, {}, {'foo': 'bar'}], ['hello', None])
-    # TODO: ref, anyOf, oneOf, allOf, not, compound
+    yield({'allOf': [{'properties': {'a': {'type': 'integer'}}, 'required': ['a']},
+                     {'properties': {'b': {'type': 'string'}}}]},
+          [{'a': 1}, {'a': 1, 'b': '2'}], [{'b': 'yo'}, 4, None])
+    yield({'oneOf': [{'type': 'integer'}, {'type': 'number'}, {'type': 'object'}]},
+          [1.5, {'foo': 'bar'}], [1.0, 'hello', None])
+    yield({'not': {'type': 'integer'}},
+          [1.5, 'blah', None], [1, 2.0])
 
 
 @pytest.mark.parametrize('schema,valid,invalid', schemas_for_validation())
