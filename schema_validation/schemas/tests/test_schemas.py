@@ -14,6 +14,8 @@ def test_full_schemas(schema):
 
 
 def test_schema_validation():
+    schema = Schema(schemas.load_schema('vega-lite-v2.0.json'))
+
     vega_lite_bar = {
       "$schema": "https://vega.github.io/schema/vega-lite/v2.json",
       "description": "A simple bar chart with embedded data.",
@@ -30,5 +32,28 @@ def test_schema_validation():
         "y": {"field": "b", "type": "quantitative"}
       }
     }
-    schema = Schema(schemas.load_schema('vega-lite-v2.0.json'))
     schema.validate(vega_lite_bar)
+
+    vega_lite_github_punchcard = {
+      "$schema": "https://vega.github.io/schema/vega-lite/v2.json",
+      "data": { "url": "data/github.csv"},
+      "mark": "circle",
+      "encoding": {
+        "y": {
+          "field": "time",
+          "type": "ordinal",
+          "timeUnit": "day"
+        },
+        "x": {
+          "field": "time",
+          "type": "ordinal",
+          "timeUnit": "hours"
+        },
+        "size": {
+          "field": "count",
+          "type": "quantitative",
+          "aggregate": "sum"
+        }
+      }
+    }
+    schema.validate(vega_lite_github_punchcard)

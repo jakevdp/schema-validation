@@ -53,14 +53,14 @@ class Schema(object):
     Each schema will match zero or more "validator" classes, which can be used
     to validate input.
     """
-    def __init__(self, schema, **kwds):
+    def __init__(self, schema, warn_on_unused=True, **kwds):
         unrecognized_args = kwds.keys() - {'root'}
         if unrecognized_args:
             raise ValueError('Unrecognized arguments to Schema: {0}'
                              ''.format(unrecognized_args))
         self.schema = schema
         self.root = kwds.get('root', self)
-        self.validators = Validator._initialize_validators(self)
+        self.validators = Validator._initialize_validators(self, warn_on_unused=warn_on_unused)
         self.parents = []
 
         # We need setup to finish entirely before recursively creating children
@@ -68,7 +68,7 @@ class Schema(object):
         if self is self.root:
             self._registry = {}
             self._registry[hash_schema(self.schema)] = self
-            self._recursively_create_children()
+            self._recursively_create_children(warn_on_unused=warn_on_unused)
 
     @classmethod
     def from_file(cls, file):
@@ -83,6 +83,15 @@ class Schema(object):
     def registry(self):
         """Registry of instantiated Schema objects"""
         return self.root._registry
+
+    @property
+    def name(self):
+        """Return the object name if any"""
+        for parent in self.parents:
+            if '$ref' in parent.schema:
+                return parent.schema['$ref']
+        else:
+            return None
 
     def _recursively_create_children(self):
         seen = set()
