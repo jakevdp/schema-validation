@@ -60,15 +60,21 @@ class Schema(object):
                              ''.format(unrecognized_args))
         self.schema = schema
         self.root = kwds.get('root', self)
-        self.validators = Validator._initialize_validators(self, warn_on_unused=warn_on_unused)
+        self.validators = Validator._initialize_validators(self)
         self.parents = []
 
-        # We need setup to finish entirely before recursively creating children
-        # and so we call it only for the root object.
+        # Because of the use of the registry, we need to finish object creation
+        # before instantiating children. For that reason, we recursively
+        # create children from the root instance.
         if self is self.root:
-            self._registry = {}
-            self._registry[hash_schema(self.schema)] = self
-            self._recursively_create_children(warn_on_unused=warn_on_unused)
+            hsh = self._schema_hash()
+            self._registry = {hsh: self}
+            self._schema_to_name = {hsh: '#'}
+            self._definitions = {'#': self}
+            self._recursively_create_children()
+
+    def _schema_hash(self):
+        return hash_schema(self.schema)
 
     @classmethod
     def from_file(cls, file):
@@ -87,17 +93,13 @@ class Schema(object):
     @property
     def name(self):
         """Return the object name if any"""
-        for parent in self.parents:
-            if '$ref' in parent.schema:
-                return parent.schema['$ref']
-        else:
-            return None
+        return self.root._schema_to_name.get(self._schema_hash(), None)
 
     def _recursively_create_children(self):
         seen = set()
         def crawl(obj):
             for child in obj.children:
-                hsh = hash_schema(child.schema)
+                hsh = child._schema_hash()
                 if hsh not in seen:
                     seen.add(hsh)
                     crawl(child)
@@ -113,10 +115,38 @@ class Schema(object):
             obj.parents.append(self)
         return obj
 
+    def resolve_ref(self, ref):
+        """Resolve a reference within a schema"""
+        if ref not in self.root._definitions:
+            keys = ref.split('/')
+            if keys[0] != '#':
+                raise ValueError("$ref = {0} not recognized: must start with #"
+                                 "".format(self.schema['$ref']))
+            refschema = self.root.schema
+            for key in keys[1:]:
+                refschema = refschema[key]
+            self.root._definitions[ref] = refschema
+            self.root._schema_to_name[hash_schema(refschema)] = ref
+        return self.root._definitions[ref]
+
     @property
     def children(self):
-        schemas = itertools.chain(*(v.children for v in self.validators))
-        return [self.initialize_child(schema) for schema in schemas]
+        return [self.initialize_child(schema)
+                for schema in self.iter_child_schemas()]
+
+    def iter_child_schemas(self):
+        for key in ['properties', 'patternProperties']:
+            for child in self.schema.get(key, {}).values():
+                yield child
+        for key in ['anyOf', 'oneOf', 'allOf']:
+            for child in self.schema.get(key, []):
+                yield child
+        for key in ['additionalProperties', 'not', 'items']:
+            val = self.schema.get(key, None)
+            if isinstance(val, dict):
+                yield val
+        if '$ref' in self.schema:
+            yield self.resolve_ref(self.schema['$ref'])
 
     def __repr__(self):
         return "Schema({0})".format(self.validators)
@@ -172,10 +202,6 @@ class Validator(object):
     def _matches(cls, schema):
         return False
 
-    @property
-    def children(self):
-        return []
-
     def __repr__(self):
         if len(self.schema) > 3:
             args = ', '.join(sorted(self.schema.keys())[:3]) + '...'
@@ -196,15 +222,6 @@ class ObjectValidator(Validator):
         return (schema.get('type', None) == 'object'
                  or 'properties' in schema
                  or 'additionalProperties' in schema)
-
-    @property
-    def children(self):
-        props = list(self.schema.get('properties', {}).values())
-        props += list(self.schema.get('patternProperties', {}).values())
-        addprops = self.schema.get('additionalProperties', None)
-        if isinstance(addprops, dict):
-            props.append(addprops)
-        return props
 
     def validate(self, obj):
         if not isinstance(obj, dict):
@@ -232,13 +249,6 @@ class ArrayValidator(Validator):
     @classmethod
     def _matches(cls, schema):
         return schema.get('type', None) == 'array' or 'items' in schema
-
-    @property
-    def children(self):
-        if 'items' in self.schema:
-            return [self.schema['items']]
-        else:
-            return []
 
     def validate(self, obj):
         if not isinstance(obj, list):
@@ -388,24 +398,24 @@ class RefValidator(Validator):
         return '$ref' in schema
 
     @property
-    def children(self):
+    def name(self):
+        return self.schema['$ref']
+
+    @property
+    def refschema(self):
         keys = self.schema['$ref'].split('/')
         if keys[0] != '#':
             raise ValueError("$ref = {0} not recognized".format(self.schema['$ref']))
         refschema = self.parent.root.schema
         for key in keys[1:]:
             refschema = refschema[key]
-        return [refschema]
-
-    @property
-    def name(self):
-        return self.schema['$ref']
+        return refschema
 
     def __repr__(self):
         return "RefValidator('{0}')".format(self.name)
 
     def validate(self, obj):
-        self.init_child(self.children[0]).validate(obj)
+        self.init_child(self.refschema).validate(obj)
 
 
 class AnyOfValidator(Validator):
@@ -414,12 +424,8 @@ class AnyOfValidator(Validator):
     def _matches(cls, schema):
         return 'anyOf' in schema
 
-    @property
-    def children(self):
-        return self.schema['anyOf']
-
     def validate(self, obj):
-        for child in self.children:
+        for child in self.schema['anyOf']:
             print(child, obj)
             try:
                 self.init_child(child).validate(obj)
@@ -436,13 +442,9 @@ class OneOfValidator(Validator):
     def _matches(cls, schema):
         return 'oneOf' in schema
 
-    @property
-    def children(self):
-        return self.schema['oneOf']
-
     def validate(self, obj):
         count = 0
-        for child in self.children:
+        for child in self.schema['oneOf']:
             try:
                 self.init_child(child).validate(obj)
             except:
@@ -459,12 +461,8 @@ class AllOfValidator(Validator):
     def _matches(cls, schema):
         return 'allOf' in schema
 
-    @property
-    def children(self):
-        return self.schema['allOf']
-
     def validate(self, obj):
-        for child in self.children:
+        for child in self.schema['allOf']:
             self.init_child(child).validate(obj)
 
 
@@ -474,13 +472,9 @@ class NotValidator(Validator):
     def _matches(cls, schema):
         return 'not' in schema
 
-    @property
-    def children(self):
-        return [self.schema['not']]
-
     def validate(self, obj):
         try:
-            self.init_child(self.children[0]).validate(obj)
+            self.init_child(self.schema['not']).validate(obj)
         except SchemaValidationError:
             pass
         else:

@@ -18,3 +18,8 @@ def iter_schemas():
     for filename in os.listdir(SCHEMA_DIR):
         if filename.endswith('.json'):
             yield load_schema(filename)
+
+def iter_schemas_with_names():
+    for filename in os.listdir(SCHEMA_DIR):
+        if filename.endswith('.json'):
+            yield (filename, load_schema(filename))
