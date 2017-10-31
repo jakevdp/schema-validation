@@ -22,7 +22,7 @@ class JSONSchema(object):
         a pointer to the root schema
     validators : list
         a list of Validator classes for this level of the schema
-    parents : list
+    parents : set
         a list of parent objects to the current schema
 
     Notes
@@ -30,14 +30,15 @@ class JSONSchema(object):
     The root JSONSchema has a _registry attribute, which is a dictionary mapping
     unique hashes of each schema to a JSONSchema object which wraps it. When the
     tree of schema objects is created, this registry is used to identify
-    when two schemas are identical, both for efficiency and to detect
+    when two schemas are identical, both for efficiency and to properly handle
     cyclical schema definitions.
 
     Because of this, the ``parents`` attribute is able to point to all parents
-    of each unique schema, even if it occurs multiple times in the schema tree.
+    of each unique schema, even if the spec occurs multiple times in the schema
+    tree.
 
-    Each schema will match zero or more "validator" classes, which can be used
-    to validate input.
+    Additionally, each schema will match zero or more "validator" classes, which
+    can be used to validate input with the validate() method.
     """
     def __init__(self, schema, warn_on_unused=True, **kwds):
         unrecognized_args = kwds.keys() - {'root'}
@@ -47,7 +48,7 @@ class JSONSchema(object):
         self.schema = schema
         self.root = kwds.get('root', self)
         self.validators = Validator._initialize_validators(self)
-        self.parents = []
+        self.parents = set()
 
         # Because of the use of the registry, we need to finish object creation
         # before instantiating children. For that reason, we recursively
@@ -73,23 +74,25 @@ class JSONSchema(object):
 
     @property
     def registry(self):
-        """Registry of instantiated JSONSchema objects"""
+        """Registry of instantiated JSONSchema objects in this tree"""
         return self.root._registry
 
     @property
     def name(self):
-        """Return the object name if any"""
+        """Return the object name if present, otherwise return None"""
         return self.root._schema_to_name.get(self._schema_hash(), None)
 
-    def _recursively_create_children(self):
-        seen = set()
-        def crawl(obj):
-            for child in obj.children:
-                hsh = child._schema_hash()
-                if hsh not in seen:
-                    seen.add(hsh)
-                    crawl(child)
-        crawl(self)
+    def _recursively_create_children(self, seen=None):
+        """
+        Recursively create all children schemas,
+        ignoring any hashes that appear in seen set.
+        """
+        seen = seen or set()
+        for child in self.children:
+            hsh = child._schema_hash()
+            if hsh not in seen:
+                seen.add(hsh)
+                child._recursively_create_children(seen)
 
     def initialize_child(self, schema):
         """Return a JSONSchema object wrapping a child schema"""
@@ -98,7 +101,7 @@ class JSONSchema(object):
             self.registry[key] = JSONSchema(schema, root=self.root)
         obj = self.registry[key]
         if self not in obj.parents:
-            obj.parents.append(self)
+            obj.parents.add(self)
         return obj
 
     def resolve_ref(self, ref):
@@ -134,9 +137,15 @@ class JSONSchema(object):
         if '$ref' in self.schema:
             yield self.resolve_ref(self.schema['$ref'])
 
-    def __repr__(self):
-        return "JSONSchema({0})".format(self.validators)
-
     def validate(self, obj):
         for validator in self.validators:
             validator.validate(obj)
+
+    def __repr__(self):
+        return "JSONSchema({0})".format(self.validators)
+
+    def __eq__(self, other):
+        return self.schema == other.schema
+
+    def __hash__(self):
+        return hash(self._schema_hash())
