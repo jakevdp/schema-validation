@@ -8,32 +8,38 @@ class SchemaValidationError(Exception):
     pass
 
 
-class ValidatorList(object):
+class ValidatorList(list):
+    """Instantiate a list of validators given a JSONSchema
+
+    Parameters
+    ----------
+    obj : JSONSchema object
+        The schema object from which to build the validators
+
+    Methods
+    -------
+    validate(self, value):
+        validate value with all validators in list
+    """
     def __init__(self, obj):
+        super(ValidatorList, self).__init__()
         validator_classes = [cls for cls in Validator.__subclasses__()
                              if cls._matches(obj.schema)]
-        self.validators = []
 
         used_keys = {'definitions', 'description', 'title', '$schema'}
         for cls in validator_classes:
             cls_schema = {key:val for key, val in obj.schema.items()
                           if key in cls.recognized_keys}
             used_keys |= cls_schema.keys()
-            self.validators.append(cls(cls_schema, parent=obj))
+            self.append(cls(cls_schema, parent=obj))
         unused = obj.schema.keys() - used_keys
         if unused:
             warnings.warn("Unused keys {0} in {1}"
-                          "".format(unused, self.validators))
+                          "".format(unused, self))
 
     def validate(self, obj):
-        for validator in self.validators:
+        for validator in self:
             validator.validate(obj)
-
-    def __getitem__(self, item):
-        return self.validators[item]
-
-    def __len__(self):
-        return len(self.validators)
 
 
 class Validator(object):
