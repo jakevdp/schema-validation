@@ -3,14 +3,14 @@ import json
 
 import pytest
 
-from ... import Schema
+from ... import JSONSchema
 from .. import iter_schemas_with_names, load_schema
 
-num_schemas = {'vega-v3.0.0.json': 543,
+num_schemas = {'vega-v3.0.7.json': 631,
                'vega-lite-v1.2.json': 309,
                'vega-lite-v2.0.json': 645}
 
-num_definitions = {'vega-v3.0.0.json': 99,
+num_definitions = {'vega-v3.0.7.json': 106,
                    'vega-lite-v1.2.json': 54,
                    'vega-lite-v2.0.json': 150}
 
@@ -18,14 +18,14 @@ num_definitions = {'vega-v3.0.0.json': 99,
 @pytest.mark.filterwarnings('ignore:Unused')
 @pytest.mark.parametrize('name,schema', iter_schemas_with_names())
 def test_full_schemas(name, schema):
-    root = Schema(schema)
+    root = JSONSchema(schema)
     assert len(root._registry) == num_schemas.get(name, None)
     assert len(root._definitions) == num_definitions.get(name, None)
 
 
 @pytest.mark.filterwarnings('ignore:Unused')
 def test_schema_validation():
-    schema = Schema(load_schema('vega-lite-v2.0.json'))
+    schema = JSONSchema(load_schema('vega-lite-v2.0.json'))
 
     vega_lite_bar = {
       "$schema": "https://vega.github.io/schema/vega-lite/v2.json",

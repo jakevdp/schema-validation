@@ -1,5 +1,5 @@
 import pytest
-from .. import Schema, SchemaValidationError, core
+from .. import JSONSchema, SchemaValidationError, core
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def definition_schema():
 
 
 def test_definition_schema(definition_schema):
-    root = Schema(definition_schema)
+    root = JSONSchema(definition_schema)
     assert len(root._registry) == 11
 
 
@@ -58,14 +58,14 @@ def generate_simple_schemas():
 
 @pytest.mark.parametrize('schema, vclasses', generate_simple_schemas())
 def test_simple_schemas(schema, vclasses):
-    root = Schema(schema)
+    root = JSONSchema(schema)
     assert len(root.validators) == len(vclasses)
     for v in root.validators:
         assert isinstance(v, tuple(vclasses))
 
     schema['$schema'] = 'http://foo.com/schema.json/#'
     schema['description'] = 'this is a description'
-    root = Schema(schema)
+    root = JSONSchema(schema)
     assert len(root.validators) == len(vclasses)
     for v in root.validators:
         assert isinstance(v, tuple(vclasses))
@@ -83,7 +83,7 @@ def circular_schema():
 
 
 def test_circular_schema(circular_schema):
-    root = Schema(circular_schema)
+    root = JSONSchema(circular_schema)
     assert isinstance(root.validators[0], core.RefValidator)
     assert isinstance(root.children[0].validators[0], core.AnyOfValidator)
 
@@ -141,7 +141,7 @@ def schemas_for_validation():
 
 @pytest.mark.parametrize('schema,valid,invalid', schemas_for_validation())
 def test_simple_validation(schema, valid, invalid):
-    schemaobj = Schema(schema)
+    schemaobj = JSONSchema(schema)
 
     for value in valid:
         schemaobj.validate(value)

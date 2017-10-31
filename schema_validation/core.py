@@ -20,19 +20,19 @@ import math
 from .utils import hash_schema, nested_dict_repr, isnumeric
 
 
-class Schema(object):
+class JSONSchema(object):
     """Wrapper for a JSON schema
 
     Parameters
     ----------
     schema : dict
-        a Schema dictionary
+        a jsonschema dictionary
 
     Attributes
     ----------
     schema : dict
         the schema dictionary
-    root : Schema object
+    root : JSONSchema object
         a pointer to the root schema
     validators : list
         a list of Validator classes for this level of the schema
@@ -41,8 +41,8 @@ class Schema(object):
 
     Notes
     -----
-    The root Schema has a _registry attribute, which is a dictionary mapping
-    unique hashes of each schema to a Schema object which wraps it. When the
+    The root JSONSchema has a _registry attribute, which is a dictionary mapping
+    unique hashes of each schema to a JSONSchema object which wraps it. When the
     tree of schema objects is created, this registry is used to identify
     when two schemas are identical, both for efficiency and to detect
     cyclical schema definitions.
@@ -56,7 +56,7 @@ class Schema(object):
     def __init__(self, schema, warn_on_unused=True, **kwds):
         unrecognized_args = kwds.keys() - {'root'}
         if unrecognized_args:
-            raise ValueError('Unrecognized arguments to Schema: {0}'
+            raise ValueError('Unrecognized arguments to JSONSchema: {0}'
                              ''.format(unrecognized_args))
         self.schema = schema
         self.root = kwds.get('root', self)
@@ -70,7 +70,7 @@ class Schema(object):
             hsh = self._schema_hash()
             self._registry = {hsh: self}
             self._schema_to_name = {hsh: '#'}
-            self._definitions = {'#': self}
+            self._definitions = {'#': self.schema}
             self._recursively_create_children()
 
     def _schema_hash(self):
@@ -87,7 +87,7 @@ class Schema(object):
 
     @property
     def registry(self):
-        """Registry of instantiated Schema objects"""
+        """Registry of instantiated JSONSchema objects"""
         return self.root._registry
 
     @property
@@ -106,10 +106,10 @@ class Schema(object):
         crawl(self)
 
     def initialize_child(self, schema):
-        """Return a Schema object wrapping a child schema"""
+        """Return a JSONSchema object wrapping a child schema"""
         key = hash_schema(schema)
         if key not in self.registry:
-            self.registry[key] = Schema(schema, root=self.root)
+            self.registry[key] = JSONSchema(schema, root=self.root)
         obj = self.registry[key]
         if self not in obj.parents:
             obj.parents.append(self)
@@ -149,7 +149,7 @@ class Schema(object):
             yield self.resolve_ref(self.schema['$ref'])
 
     def __repr__(self):
-        return "Schema({0})".format(self.validators)
+        return "JSONSchema({0})".format(self.validators)
 
     def validate(self, obj):
         for validator in self.validators:
@@ -175,8 +175,8 @@ class Validator(object):
         """
         Parameters
         ----------
-        obj: Schema
-            the Schema object for which the validators will be initialized
+        obj: JSONSchema
+            the JSONSchema object for which the validators will be initialized
         """
         validator_classes = [cls for cls in cls.__subclasses__()
                              if cls._matches(obj.schema)]
@@ -195,7 +195,7 @@ class Validator(object):
         return validators
 
     def init_child(self, schema):
-        """Initialize a child Schema object from a schema dict"""
+        """Initialize a child JSONSchema object from a schema dict"""
         return self.parent.initialize_child(schema)
 
     @classmethod
