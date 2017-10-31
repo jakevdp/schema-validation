@@ -1,5 +1,6 @@
 import pytest
 from .. import JSONSchema, SchemaValidationError, core
+from .. import validators as val
 
 
 @pytest.fixture
@@ -27,33 +28,33 @@ def test_definition_schema(definition_schema):
 
 
 def generate_simple_schemas():
-    yield ({'type': 'integer'}, [core.IntegerTypeValidator])
-    yield ({'type': 'number'}, [core.NumberTypeValidator])
-    yield ({'type': 'string'}, [core.StringTypeValidator])
-    yield ({'type': 'null'}, [core.NullTypeValidator])
-    yield ({'type': 'array'}, [core.ArrayValidator])
-    yield ({'type': 'object'}, [core.ObjectValidator])
-    yield ({'type': ['integer', 'number', 'string']}, [core.MultiTypeValidator])
-    yield ({'properties': {'foo': {'type': 'string'}}}, [core.ObjectValidator])
-    yield ({'additionalProperties': {'type': 'string'}}, [core.ObjectValidator])
-    yield ({'enum': ['hello'], 'type': 'string'}, [core.EnumValidator,
-                                                   core.StringTypeValidator])
-    yield ({'enum': [0, 1], 'type': 'integer'}, [core.EnumValidator,
-                                                 core.IntegerTypeValidator])
-    yield ({'enum': [0, 1], 'type': 'number'}, [core.EnumValidator,
-                                                core.NumberTypeValidator])
-    yield ({'enum': [True], 'type': 'boolean'}, [core.EnumValidator,
-                                                 core.BooleanTypeValidator])
-    yield ({'enum': [None], 'type': 'null'}, [core.EnumValidator,
-                                              core.NullTypeValidator])
-    yield ({'enum': ['hello', None, 2]}, [core.EnumValidator])
+    yield ({'type': 'integer'}, [val.IntegerTypeValidator])
+    yield ({'type': 'number'}, [val.NumberTypeValidator])
+    yield ({'type': 'string'}, [val.StringTypeValidator])
+    yield ({'type': 'null'}, [val.NullTypeValidator])
+    yield ({'type': 'array'}, [val.ArrayValidator])
+    yield ({'type': 'object'}, [val.ObjectValidator])
+    yield ({'type': ['integer', 'number', 'string']}, [val.MultiTypeValidator])
+    yield ({'properties': {'foo': {'type': 'string'}}}, [val.ObjectValidator])
+    yield ({'additionalProperties': {'type': 'string'}}, [val.ObjectValidator])
+    yield ({'enum': ['hello'], 'type': 'string'}, [val.EnumValidator,
+                                                   val.StringTypeValidator])
+    yield ({'enum': [0, 1], 'type': 'integer'}, [val.EnumValidator,
+                                                 val.IntegerTypeValidator])
+    yield ({'enum': [0, 1], 'type': 'number'}, [val.EnumValidator,
+                                                val.NumberTypeValidator])
+    yield ({'enum': [True], 'type': 'boolean'}, [val.EnumValidator,
+                                                 val.BooleanTypeValidator])
+    yield ({'enum': [None], 'type': 'null'}, [val.EnumValidator,
+                                              val.NullTypeValidator])
+    yield ({'enum': ['hello', None, 2]}, [val.EnumValidator])
     yield ({'description': 'foo'}, [])
     yield ({}, [])
     yield ({'$ref': '#/definitions/blah',
             'definitions': {'blah': {'type': 'string'}}},
-           [core.RefValidator])
+           [val.RefValidator])
     yield({'anyOf': [{'type': 'integer'}, {'type': 'string'}]},
-          [core.AnyOfValidator])
+          [val.AnyOfValidator])
 
 
 @pytest.mark.parametrize('schema, vclasses', generate_simple_schemas())
@@ -84,8 +85,8 @@ def circular_schema():
 
 def test_circular_schema(circular_schema):
     root = JSONSchema(circular_schema)
-    assert isinstance(root.validators[0], core.RefValidator)
-    assert isinstance(root.children[0].validators[0], core.AnyOfValidator)
+    assert isinstance(root.validators[0], val.RefValidator)
+    assert isinstance(root.children[0].validators[0], val.AnyOfValidator)
 
 
 def schemas_for_validation():
