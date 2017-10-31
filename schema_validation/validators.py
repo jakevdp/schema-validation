@@ -8,7 +8,41 @@ class SchemaValidationError(Exception):
     pass
 
 
+class ValidatorList(object):
+    def __init__(self, obj):
+        validator_classes = [cls for cls in Validator.__subclasses__()
+                             if cls._matches(obj.schema)]
+        self.validators = []
+
+        used_keys = {'definitions', 'description', 'title', '$schema'}
+        for cls in validator_classes:
+            cls_schema = {key:val for key, val in obj.schema.items()
+                          if key in cls.recognized_keys}
+            used_keys |= cls_schema.keys()
+            self.validators.append(cls(cls_schema, parent=obj))
+        unused = obj.schema.keys() - used_keys
+        if unused:
+            warnings.warn("Unused keys {0} in {1}"
+                          "".format(unused, self.validators))
+
+    def validate(self, obj):
+        for validator in self.validators:
+            validator.validate(obj)
+
+    def __getitem__(self, item):
+        return self.validators[item]
+
+    def __len__(self):
+        return len(self.validators)
+
+
 class Validator(object):
+    """Abstract base class for JSONSchema validation.
+
+    This class should not be used directly; rather use the ValidatorList class
+    """
+    recognized_keys = set()
+
     def __init__(self, schema, parent):
         self.schema = schema
         self.parent = parent
@@ -18,37 +52,9 @@ class Validator(object):
             warnings.warn('Unrecognized keys {0} in class {1}'
                           ''.format(unrecognized, self.__class__.__name__))
 
-    @classmethod
-    def _initialize_validators(cls, obj):
-        """
-        Parameters
-        ----------
-        obj: JSONSchema
-            the JSONSchema object for which the validators will be initialized
-        """
-        validator_classes = [cls for cls in cls.__subclasses__()
-                             if cls._matches(obj.schema)]
-        validators = []
-
-        used_keys = {'definitions', 'description', 'title', '$schema'}
-        for cls in validator_classes:
-            cls_schema = {key:val for key, val in obj.schema.items()
-                          if key in cls.recognized_keys}
-            used_keys |= cls_schema.keys()
-            validators.append(cls(cls_schema, parent=obj))
-        unused = obj.schema.keys() - used_keys
-        if unused:
-            warnings.warn("Unused keys {0} in {1}"
-                          "".format(unused, validators))
-        return validators
-
-    def init_child(self, schema):
+    def _init_child(self, schema):
         """Initialize a child JSONSchema object from a schema dict"""
         return self.parent.initialize_child(schema)
-
-    @classmethod
-    def _matches(cls, schema):
-        return False
 
     def __repr__(self):
         if len(self.schema) > 3:
@@ -56,6 +62,10 @@ class Validator(object):
         else:
             args = ', '.join(sorted(self.schema.keys()))
         return "{0}({1})".format(self.__class__.__name__, args)
+
+    @classmethod
+    def _matches(cls, schema):
+        raise NotImplementedError()
 
     def validate(self, value):
         raise NotImplementedError()
@@ -72,24 +82,31 @@ class ObjectValidator(Validator):
                  or 'additionalProperties' in schema)
 
     def validate(self, obj):
+        required = self.schema.get('required', [])
         if not isinstance(obj, dict):
-            raise SchemaValidationError("{0} is not of type='object'".format(obj))
+            if self.schema.get('type', None) == 'object':
+                raise SchemaValidationError("{0} is not of type='object'"
+                                            "".format(obj))
+            if required:
+                raise SchemaValidationError("{0} is missing properties {1}"
+                                            "".format(obj, required))
         if not all(key in obj for key in self.schema.get('required', [])):
             raise SchemaValidationError("{0} does not contain required keys {1}"
                                         "".format(obj, self.schema['required']))
-        for key, val in obj.items():
-            properties = self.schema.get('properties', {})
-            patternProperties = self.schema.get('patternProperties', {})
-            additionalProperties = self.schema.get('additionalProperties', True)
-            if key in properties:
-                self.init_child(properties[key]).validate(val)
-            elif patternProperties:
-                raise NotImplementedError('patternProperties validation')
-            elif isinstance(additionalProperties, dict):
-                self.parent.initialize_child(additionalProperties).validate(val)
-            elif not additionalProperties:
-                raise SchemaValidationError("{0} property {1} is invalid"
-                                            "".format(obj, key))
+        if isinstance(obj, dict):
+            for key, val in obj.items():
+                properties = self.schema.get('properties', {})
+                patternProperties = self.schema.get('patternProperties', {})
+                additionalProperties = self.schema.get('additionalProperties', True)
+                if key in properties:
+                    self._init_child(properties[key]).validate(val)
+                elif patternProperties:
+                    raise NotImplementedError('patternProperties validation')
+                elif isinstance(additionalProperties, dict):
+                    self.parent.initialize_child(additionalProperties).validate(val)
+                elif not additionalProperties:
+                    raise SchemaValidationError("{0} property {1} is invalid"
+                                                "".format(obj, key))
 
 
 class ArrayValidator(Validator):
@@ -108,7 +125,7 @@ class ArrayValidator(Validator):
         if 'numItems' in self.schema and len(obj) != self.schema['numItems']:
             raise SchemaValidationError()
         if 'items' in self.schema:
-            itemtype = self.init_child(self.schema['items'])
+            itemtype = self._init_child(self.schema['items'])
             for val in obj:
                 itemtype.validate(val)
 
@@ -230,7 +247,7 @@ class MultiTypeValidator(Validator):
         for typ in self.schema['type']:
             schema_copy['type'] = typ
             try:
-                self.init_child(schema_copy).validate(obj)
+                self._init_child(schema_copy).validate(obj)
             except:
                 pass
             else:
@@ -263,7 +280,7 @@ class RefValidator(Validator):
         return "RefValidator('{0}')".format(self.name)
 
     def validate(self, obj):
-        self.init_child(self.refschema).validate(obj)
+        self._init_child(self.refschema).validate(obj)
 
 
 class AnyOfValidator(Validator):
@@ -276,7 +293,7 @@ class AnyOfValidator(Validator):
         for child in self.schema['anyOf']:
             print(child, obj)
             try:
-                self.init_child(child).validate(obj)
+                self._init_child(child).validate(obj)
             except SchemaValidationError:
                 pass
             else:
@@ -294,7 +311,7 @@ class OneOfValidator(Validator):
         count = 0
         for child in self.schema['oneOf']:
             try:
-                self.init_child(child).validate(obj)
+                self._init_child(child).validate(obj)
             except:
                 pass
             else:
@@ -311,7 +328,7 @@ class AllOfValidator(Validator):
 
     def validate(self, obj):
         for child in self.schema['allOf']:
-            self.init_child(child).validate(obj)
+            self._init_child(child).validate(obj)
 
 
 class NotValidator(Validator):
@@ -322,7 +339,7 @@ class NotValidator(Validator):
 
     def validate(self, obj):
         try:
-            self.init_child(self.schema['not']).validate(obj)
+            self._init_child(self.schema['not']).validate(obj)
         except SchemaValidationError:
             pass
         else:

@@ -3,7 +3,7 @@ JSONSchema class implementation
 """
 
 from .utils import hash_schema, nested_dict_repr
-from .validators import Validator
+from .validators import ValidatorList
 
 
 class JSONSchema(object):
@@ -47,7 +47,7 @@ class JSONSchema(object):
                              ''.format(unrecognized_args))
         self.schema = schema
         self.root = kwds.get('root', self)
-        self.validators = Validator._initialize_validators(self)
+        self.validators = ValidatorList(self)
         self.parents = set()
 
         # Because of the use of the registry, we need to finish object creation
@@ -138,8 +138,7 @@ class JSONSchema(object):
             yield self.resolve_ref(self.schema['$ref'])
 
     def validate(self, obj):
-        for validator in self.validators:
-            validator.validate(obj)
+        self.validators.validate(obj)
 
     def __repr__(self):
         return "JSONSchema({0})".format(self.validators)
