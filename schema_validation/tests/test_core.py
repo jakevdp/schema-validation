@@ -1,5 +1,5 @@
 import pytest
-from .. import JSONSchema, SchemaValidationError, core
+from .. import JSONSchema, SchemaValidationError
 from .. import validators as val
 
 

@@ -1,3 +1,3 @@
 """Schema Validation"""
-from .core import JSONSchema
+from .jsonschema import JSONSchema
 from .validators import SchemaValidationError
