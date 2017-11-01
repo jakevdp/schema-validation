@@ -1,6 +1,7 @@
 """Objects that implement schema validation"""
 
 import warnings
+import re
 
 from .utils import isnumeric
 
@@ -191,6 +192,7 @@ class IntegerTypeValidator(Validator):
 class StringTypeValidator(Validator):
     recognized_keys = {'type', 'pattern', 'format',
                        'minLength', 'maxLength', 'default'}
+    valid_formats = ['date-time', 'email', 'hostname', 'ipv4', 'ipv6', 'uri']
     @classmethod
     def _matches(cls, schema):
         return schema.get('type', None) == 'string'
@@ -204,8 +206,13 @@ class StringTypeValidator(Validator):
         if 'maxLength' in self.schema and len(obj) > self.schema['maxLength']:
             raise SchemaValidationError("{0} is longer than maxLength={1}"
                                         "".format(obj, self.schema['maxLength']))
-        if 'pattern' in self.schema or 'format' in self.schema:
-            warnings.warn("pattern and format not implemented in StringTypeValidator")
+        if 'pattern' in self.schema and not re.match(self.schema['pattern'], obj):
+            raise SchemaValidationError("{0} does not match pattern {1}"
+                                        "".format(obj, self.schema['pattern']))
+        if 'format' in self.schema:
+            if self.schema['format'] not in self.valid_formats:
+                raise SchemaValidationError('format not recognized')
+            warnings.warn("format constraint not implemented in StringTypeValidator")
 
 
 class NullTypeValidator(Validator):

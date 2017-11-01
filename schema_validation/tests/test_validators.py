@@ -76,6 +76,8 @@ def schemas_for_validation():
            [0.01, 0.5, 0.99], [0, 1])
     yield ({"type": "string", 'minLength': 2, 'maxLength': 5},
            ["12", "123", "12345"], ["", "1", "123456"])
+    yield ({"type": "string", "pattern": "^[a-zA-Z1-9]+$"},
+           ['abc', 'ABc2', 'Zxy4'], ['', '1-9', 'A&4'])
     yield ({'type': 'object', 'properties': {'a': {'type': 'integer'}}},
            [{'a':4}, {'a':0, 'b':5}], [1, {'a':'foo'}, None])
     yield ({'properties': {'a': {'type': 'integer'}},

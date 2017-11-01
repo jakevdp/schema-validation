@@ -25,6 +25,12 @@ def test_full_schemas(name, schema):
     assert len(root._definitions) == num_definitions.get(name, None)
 
 
+@pytest.mark.parametrize('name,schema', iter_schemas_with_names())
+def test_metaschema(name, schema):
+    root = JSONSchema(load_schema('jsonschema-draft04.json'))
+    root.validate(schema)
+
+
 @pytest.mark.filterwarnings('ignore:Unused')
 def test_schema_validation():
     schema = JSONSchema(load_schema('vega-lite-v2.0.json'))
